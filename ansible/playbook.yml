@@ -1,0 +1,6 @@
+- name: Install and configure Sentry
+  hosts: sentry
+  become: true
+  gather_facts: false
+  roles:
+    - sentry

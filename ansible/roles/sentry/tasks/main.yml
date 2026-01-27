@@ -1,0 +1,46 @@
+- name: Update apt cache
+  apt:
+    update_cache: yes
+
+- name: Install base packages
+  apt:
+    name:
+      - ca-certificates
+      - curl
+      - gnupg
+      - lsb-release
+      - git
+    state: present
+
+- name: Install Docker
+  shell: |
+    curl -fsSL https://get.docker.com | sh
+  args:
+    creates: /usr/bin/docker
+
+- name: Enable and start Docker
+  systemd:
+    name: docker
+    state: started
+    enabled: true
+
+- name: Verify docker compose is available
+  command: docker compose version
+  changed_when: false
+
+- name: Clone Sentry self-hosted repo
+  git:
+    repo: https://github.com/getsentry/self-hosted.git
+    dest: /opt/sentry
+    version: master
+
+- name: Run Sentry installer
+  shell: ./install.sh --skip-user-creation
+  args:
+    chdir: /opt/sentry
+    creates: /opt/sentry/.env
+
+- name: Start Sentry services
+  shell: docker compose up -d
+  args:
+    chdir: /opt/sentry
