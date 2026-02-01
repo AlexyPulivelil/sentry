@@ -1,6 +1,6 @@
 **Terraform**
 
-* Terraform code in the terraform/ directory creates an EC2 instance and related resources.
+* Terraform code in the `terraform/` directory creates an EC2 instance and related resources.
 
 * Variables and outputs are managed using variables.tf, terraform.tfvars, and outputs.tf.
 
@@ -8,7 +8,7 @@
 
 **Ansible**
 
-* The ansible/ directory contains the Ansible configuration used to configure the EC2 instance.
+* The `ansible/` directory contains the Ansible configuration used to configure the EC2 instance.
 
 * The Ansible playbook installs and sets up the self-hosted Sentry application.
 
@@ -62,6 +62,9 @@ Add sample data:
 Run the script:
 
 `bash scripts/cleanup.sh`
+
+*NB:*
+Since the logs are stored under `/var/log`, the script must be run as root (either via root cron or using sudo when testing).
 
 Check the archive directory:
 
