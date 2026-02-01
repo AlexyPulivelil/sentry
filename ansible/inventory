@@ -1,2 +1,8 @@
 [sentry]
-x.x.x.x ansible_user=ubuntu
+13.232.97.24 ansible_user=ubuntu
+
+[all:vars]
+ansible_python_interpreter=/usr/bin/python3
+ansible_connection=ssh
+ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
+ansible_timeout=30

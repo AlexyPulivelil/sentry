@@ -1,46 +1,233 @@
-- name: Update apt cache
-  apt:
-    update_cache: yes
+# - name: Update apt cache
+#   apt:
+#     update_cache: yes
 
-- name: Install base packages
+# - name: Install base packages
+#   apt:
+#     name:
+#       - ca-certificates
+#       - curl
+#       - gnupg
+#       - lsb-release
+#       - git
+#     state: present
+
+# - name: Install Docker
+#   shell: |
+#     curl -fsSL https://get.docker.com | sh
+#   args:
+#     creates: /usr/bin/docker
+
+# - name: Enable and start Docker
+#   systemd:
+#     name: docker
+#     state: started
+#     enabled: true
+
+# - name: Verify docker compose is available
+#   command: docker compose version
+#   changed_when: false
+
+# - name: Clone Sentry self-hosted repo
+#   git:
+#     repo: https://github.com/getsentry/self-hosted.git
+#     dest: /opt/sentry
+#     version: master
+
+# - name: Run Sentry installer
+#   shell: ./install.sh --skip-user-creation
+#   args:
+#     chdir: /opt/sentry
+#     creates: /opt/sentry/.env
+
+# - name: Start Sentry services
+#   shell: docker compose up -d
+#   args:
+#     chdir: /opt/sentry
+
+---
+- name: Install prerequisites [TASK 1/16]
   apt:
     name:
+      - apt-transport-https
       - ca-certificates
       - curl
       - gnupg
       - lsb-release
       - git
+      - python3-pip
     state: present
+    update_cache: yes
+  register: task1_apt
 
-- name: Install Docker
-  shell: |
-    curl -fsSL https://get.docker.com | sh
-  args:
-    creates: /usr/bin/docker
+- name: Log APT result [TASK 1a]
+  debug:
+    var: task1_apt
 
-- name: Enable and start Docker
-  systemd:
-    name: docker
-    state: started
-    enabled: true
+- name: Add Docker GPG key [TASK 2/16]  
+  apt_key:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    state: present
+  register: task2_gpg
 
-- name: Verify docker compose is available
-  command: docker compose version
-  changed_when: false
+- name: Log Docker GPG [TASK 2a]
+  debug:
+    var: task2_gpg
 
-- name: Clone Sentry self-hosted repo
+- name: Add Docker repository [TASK 3/16]
+  apt_repository:
+    repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+    state: present
+  register: task3_repo
+
+- name: Log Docker repo [TASK 3a] 
+  debug:
+    var: task3_repo
+
+- name: Install Docker [TASK 4/16]
+  apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-compose-plugin
+    state: present
+  register: task4_docker
+
+- name: Log Docker install [TASK 4a]
+  debug:
+    var: task4_docker
+
+- name: Add user to docker group [TASK 5/16]
+  user:
+    name: "{{ ansible_user }}"
+    groups: docker
+    append: yes
+  register: task5_user
+
+- name: Log user group [TASK 5a]
+  debug:
+    var: task5_user
+
+- name: Clone Sentry repo [TASK 6/16]
   git:
     repo: https://github.com/getsentry/self-hosted.git
     dest: /opt/sentry
     version: master
+    force: yes
+  register: task6_git
 
-- name: Run Sentry installer
-  shell: ./install.sh --skip-user-creation
+- name: Log git clone [TASK 6a]
+  debug:
+    var: task6_git
+
+- name: Create logs directory [TASK 7/16]
+  file:
+    path: /opt/sentry/logs
+    state: directory
+    mode: '0755'
+  register: task7_logs
+
+- name: Create .env file [TASK 8/16]
+  copy:
+    content: |
+      SENTRY_SERVER=http://{{ ansible_host }}:9000
+      SENTRY_REDIS_HOST=redis
+      SENTRY_POSTGRES_HOST=postgres
+      SENTRY_DB_NAME=sentry
+      SENTRY_DB_USER=sentry
+      SENTRY_DB_PASSWORD=SecurePass123!
+      SENTRY_BEACON=false
+    dest: /opt/sentry/.env
+  register: task8_env
+
+- name: Generate secret key [TASK 9/16]
+  shell: docker run --rm getsentry/sentry:latest config generate-secret-key
+  register: task9_secret
+  changed_when: false
+
+- name: Add secret key [TASK 10/16]
+  lineinfile:
+    path: /opt/sentry/.env
+    line: "SENTRY_SECRET_KEY={{ task9_secret.stdout }}"
+  register: task10_secretline
+
+- name: Create docker-compose.yml [TASK 11/16]
+  copy:
+    content: |
+      services:
+        redis:
+          image: redis:7-alpine
+          hostname: redis
+          volumes: [redis:/data]
+        postgres:
+          image: postgres:15-alpine
+          hostname: postgres
+          environment:
+            POSTGRES_DB: sentry
+            POSTGRES_USER: sentry
+            POSTGRES_PASSWORD: SecurePass123!
+          volumes: [postgres:/var/lib/postgresql/data]
+        web:
+          image: getsentry/sentry:latest
+          hostname: web
+          ports: ["9000:9000"]
+          env_file: .env
+          depends_on: [postgres, redis]
+        cron:
+          image: getsentry/sentry:latest
+          env_file: .env
+          command: run cron
+          depends_on: [postgres, redis]
+        worker:
+          image: getsentry/sentry:latest
+          env_file: .env
+          command: run worker
+          depends_on: [postgres, redis]
+      volumes:
+        postgres: {}
+        redis: {}
+        sentry_data: {}
+    dest: /opt/sentry/docker-compose.yml
+  register: task11_compose
+
+- name: Start Sentry services [TASK 12/16]
+  shell: |
+    nohup docker compose up -d > /opt/sentry/startup.log 2>&1 &
+  async: 1800
+  poll: 60
   args:
     chdir: /opt/sentry
-    creates: /opt/sentry/.env
+  register: task12_start
 
-- name: Start Sentry services
-  shell: docker compose up -d
+- name: Wait for initialization [TASK 13/16]
+  pause:
+    seconds: 30
+  register: task13_wait
+
+- name: Run migrations NO PROMPT
+  shell: docker compose run --rm web upgrade --noinput
   args:
     chdir: /opt/sentry
+  async: 900
+  poll: 30
+
+- name: Create admin user
+  shell: >
+    docker compose run --rm web createuser
+    --email="{{ sentry_admin_email | default('admin@example.com') }}"
+    --password="{{ sentry_admin_password | default('SecurePass123!') }}"
+    --no-input
+  args:
+    chdir: /opt/sentry
+  register: admin_result
+
+
+- name: Verify Sentry is up and running
+  uri:
+    url: "http://{{ ansible_host }}:9000"
+    status_code: 200
+  register: sentry_status
+  retries: 5
+  delay: 10
+  until: sentry_status.status == 200

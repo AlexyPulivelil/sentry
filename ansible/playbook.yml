@@ -1,6 +1,7 @@
-- name: Install and configure Sentry
-  hosts: sentry
+---
+- name: Deploy Sentry Self-Hosted [SIMPLEST]
+  hosts: all
   become: true
-  gather_facts: false
+  gather_facts: true
   roles:
     - sentry

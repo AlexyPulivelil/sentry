@@ -1,0 +1,3 @@
+sentry_admin_email: "admin@example.com"
+sentry_admin_password: "SecurePass123!"
+sentry_org_name: "workshop"
